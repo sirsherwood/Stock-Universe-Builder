@@ -1,0 +1,106 @@
+#include "AlpacaClient.h"
+
+#include <curl/curl.h> 
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
+namespace {
+    size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+        size_t totalBytes = size * nmemb;
+
+        std::string* response = static_cast<std::string*>(userp);
+        response->append(static_cast<char*>(contents), totalBytes);
+
+        return totalBytes;
+    }
+}
+
+AlpacaClient::AlpacaClient(const std::string& key, const std::string& secret)
+    : apiKey(key), apiSecret(secret), baseUrl("https://data.alpaca.markets/v2") {
+}
+
+std::string AlpacaClient::buildBarsUrl(
+    const std::string& symbol,
+    const std::string& timeframe,
+    const std::string& start,
+    const std::string& end,
+    const std::string& feed,
+    int limit,
+    const std::string& pageToken
+) {
+    std::ostringstream url;
+
+    url << baseUrl
+        << "/stocks/" << symbol << "/bars"
+        << "?timeframe=" << timeframe
+        << "&start=" << start
+        << "&end=" << end
+        << "&feed=" << feed
+        << "&limit=" << limit;
+
+    if (!pageToken.empty()) {
+        url << "&page_token=" << pageToken;
+    }
+
+    return url.str();
+}
+
+std::string AlpacaClient::getBarsRaw(
+    const std::string& symbol,
+    const std::string& timeframe,
+    const std::string& start,
+    const std::string& end,
+    const std::string& feed,
+    int limit,
+    const std::string& pageToken
+) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        throw std::runtime_error("Failed to initialize libcurl.");
+    }
+
+    std::string url = buildBarsUrl(symbol, timeframe, start, end, feed, limit, pageToken);
+    std::string response;
+
+    std::string keyHeader = "APCA-API-KEY-ID: " + apiKey;
+    std::string secretHeader = "APCA-API-SECRET-KEY: " + apiSecret;
+
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, keyHeader.c_str());
+    headers = curl_slist_append(headers, secretHeader.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+    CURLcode result = curl_easy_perform(curl);
+
+    if (result != CURLE_OK) {
+        std::string errorMessage = curl_easy_strerror(result);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        throw std::runtime_error("Request failed: " + errorMessage);
+    }
+
+    long httpCode = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (httpCode != 200) {
+        throw std::runtime_error(
+            "HTTP request failed with status code " +
+            std::to_string(httpCode) +
+            "\nResponse body:\n" +
+            response
+        );
+    }
+
+    return response;
+}
