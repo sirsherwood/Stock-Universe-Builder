@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Universe Builder",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-std=c++17",
+        "-Wall",
+        "-Wextra",
+        "-pedantic",
+        "main.cpp",
+        "Asset_Pull/assetPull.cpp",
+        "Data_Pull/AlpacaClient.cpp",
+        "Data_Processing/DataProcessor.cpp",
+        "-o",
+        "app",
+        "-lcurl"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "detail": "Compile the Stock Universe Builder"
+    }
+  ]
+}

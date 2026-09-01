@@ -11,6 +11,8 @@ class AlpacaClient {
     public:
 
         AlpacaClient(const std::string& key, const std::string& secret);
+        std::string authenticatedGet(const std::string& url) const;
+
         // Fetch
         std::string getBarsRaw(
             const std::string& symbol,
@@ -20,7 +22,7 @@ class AlpacaClient {
             const std::string& feed = "iex",
             int limit = 10000,
             const std::string& pageToken = ""
-        );
+        ) const;
     private:
         
         //Helper
@@ -32,7 +34,7 @@ class AlpacaClient {
             const std::string& feed,
             int limit,
             const std::string& pageToken
-        );
+        ) const;
 };
 
 #endif

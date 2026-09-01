@@ -16,11 +16,20 @@ std::vector<Bar> parseBars(const std::string& rawJson){
 
     std::vector<Bar> bars;
 
+    if (!j.is_object()) {
+        throw std::runtime_error("Historical-bars response is not a JSON object.");
+    }
     if (!j.contains("bars") || j["bars"].is_null()){
         return bars;
     }
+    if (!j["bars"].is_array()) {
+        throw std::runtime_error("Historical-bars response contains a non-array bars field.");
+    }
 
     for (const auto& item : j["bars"]){
+        if (!item.is_object()) {
+            throw std::runtime_error("Historical-bars response contains an invalid bar record.");
+        }
         Bar bar;
 
         bar.timestamp = item.value("t", "");
@@ -56,6 +65,10 @@ std::string prettyPrintJson(const std::string& rawJson){
 std::string extractNextPageToken(const std::string& rawJson){
     json j = json::parse(rawJson);
 
+    if (!j.is_object()) {
+        throw std::runtime_error("Historical-bars response is not a JSON object.");
+    }
+
     if (!j.contains("next_page_token")) {
         return "";
     }
@@ -90,5 +103,9 @@ void writeBarsToCsv(const std::string& filename, const std::vector<Bar>& bars){
              << bar.volume << ','
              << bar.tradeCount << ','
              << bar.vwap << '\n';
+    }
+
+    if (!file) {
+        throw std::runtime_error("Failed while writing CSV file: " + filename);
     }
 }

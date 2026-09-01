@@ -1,6 +1,8 @@
 #include "AlpacaClient.h"
 
 #include <curl/curl.h> 
+#include <cctype>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -13,6 +15,21 @@ namespace {
         response->append(static_cast<char*>(contents), totalBytes);
 
         return totalBytes;
+    }
+
+    std::string urlEncode(const std::string& value) {
+        std::ostringstream encoded;
+        encoded << std::uppercase << std::hex;
+        for (const unsigned char character : value) {
+            if (std::isalnum(character) || character == '-' || character == '_' ||
+                character == '.' || character == '~') {
+                encoded << character;
+            } else {
+                encoded << '%' << std::setw(2) << std::setfill('0')
+                        << static_cast<int>(character);
+            }
+        }
+        return encoded.str();
     }
 }
 
@@ -28,19 +45,19 @@ std::string AlpacaClient::buildBarsUrl(
     const std::string& feed,
     int limit,
     const std::string& pageToken
-) {
+) const {
     std::ostringstream url;
 
     url << baseUrl
-        << "/stocks/" << symbol << "/bars"
-        << "?timeframe=" << timeframe
-        << "&start=" << start
-        << "&end=" << end
-        << "&feed=" << feed
+        << "/stocks/" << urlEncode(symbol) << "/bars"
+        << "?timeframe=" << urlEncode(timeframe)
+        << "&start=" << urlEncode(start)
+        << "&end=" << urlEncode(end)
+        << "&feed=" << urlEncode(feed)
         << "&limit=" << limit;
 
     if (!pageToken.empty()) {
-        url << "&page_token=" << pageToken;
+        url << "&page_token=" << urlEncode(pageToken);
     }
 
     return url.str();
@@ -54,13 +71,18 @@ std::string AlpacaClient::getBarsRaw(
     const std::string& feed,
     int limit,
     const std::string& pageToken
-) {
+) const {
+    return authenticatedGet(
+        buildBarsUrl(symbol, timeframe, start, end, feed, limit, pageToken)
+    );
+}
+
+std::string AlpacaClient::authenticatedGet(const std::string& url) const {
     CURL* curl = curl_easy_init();
     if (!curl) {
         throw std::runtime_error("Failed to initialize libcurl.");
     }
 
-    std::string url = buildBarsUrl(symbol, timeframe, start, end, feed, limit, pageToken);
     std::string response;
 
     std::string keyHeader = "APCA-API-KEY-ID: " + apiKey;
@@ -93,7 +115,7 @@ std::string AlpacaClient::getBarsRaw(
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (httpCode != 200) {
+    if (httpCode < 200 || httpCode >= 300) {
         throw std::runtime_error(
             "HTTP request failed with status code " +
             std::to_string(httpCode) +
