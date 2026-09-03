@@ -1,0 +1,3 @@
+https://paper-api.alpaca.markets
+YOUR_ALPACA_KEY_ID
+YOUR_ALPACA_SECRET_KEY

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -19,7 +20,15 @@
 #include <utility>
 #include <vector>
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
+constexpr char kDefaultTicketFile[] = "ticket.txt";
+
 struct ApiCredentials { std::string key; std::string secret; };
 
 struct BuildConfig {
@@ -73,9 +82,31 @@ std::map<std::string, std::string> readTicket(std::istream& input) {
     }
     if (!input.eof()) throw std::runtime_error("Failed while reading ticket input.");
     if (values.empty()) {
-        throw std::runtime_error("No ticket configuration was provided on standard input.");
+        throw std::runtime_error("No ticket configuration was provided.");
     }
     return values;
+}
+
+bool stdinHasRedirectedInput() {
+#ifdef _WIN32
+    return _isatty(_fileno(stdin)) == 0;
+#else
+    return isatty(fileno(stdin)) == 0;
+#endif
+}
+
+std::map<std::string, std::string> loadTicket() {
+    if (stdinHasRedirectedInput()) {
+        return readTicket(std::cin);
+    }
+
+    std::ifstream input(kDefaultTicketFile);
+    if (!input.is_open()) {
+        throw std::runtime_error(
+            "Could not open ticket configuration file: " + std::string(kDefaultTicketFile)
+        );
+    }
+    return readTicket(input);
 }
 
 std::string requiredValue(const std::map<std::string, std::string>& values,
@@ -345,7 +376,7 @@ int main() {
     }
     int exitCode = 0;
     try {
-        const BuildConfig config = buildConfigFromTicket(readTicket(std::cin));
+        const BuildConfig config = buildConfigFromTicket(loadTicket());
         const ApiCredentials credentials = readApiCredentials(config.apiKeys);
         const std::vector<std::string> universe = readUniverseSymbols(config.universe);
         const std::size_t requested = config.maxSymbols == 0

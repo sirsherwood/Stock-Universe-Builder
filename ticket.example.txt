@@ -1,0 +1,25 @@
+# Local builder configuration template.
+# Copy this file to ticket.txt and adjust values for your machine if needed.
+
+# Supported mode for the current builder entry point.
+mode=build_universe
+
+# Local API credential file.
+api_keys=APIKeys.txt
+
+# Input and output paths relative to the repository root.
+universe=manifests/asset_universe.csv
+data_directory=Data
+manifest_output=manifests/build_manifest.csv
+
+# Historical pull window and request settings.
+timeframe=1Day
+start=2016-01-01T00:00:00Z
+end=2026-01-01T00:00:00Z
+feed=sip
+limit=10000
+
+# Build controls.
+max_symbols=10
+reuse_existing=true
+refresh_existing=false
