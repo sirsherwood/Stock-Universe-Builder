@@ -140,7 +140,11 @@ void writeAssetUniverseCsv(
 std::vector<std::string> readUniverseSymbols(const std::string& filename) {
     std::ifstream input(filename);
     if (!input.is_open()) {
-        throw std::runtime_error("Could not open asset universe CSV: " + filename);
+        throw std::runtime_error(
+            "Could not open the asset universe CSV: " + filename +
+            ". Set mode=refresh_asset_universe in ticket.txt and run the launcher once to "
+            "create it, then change mode back to build_universe."
+        );
     }
 
     std::string line;

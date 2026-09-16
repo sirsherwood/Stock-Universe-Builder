@@ -9,6 +9,8 @@ manifests/*.csv
 
 app
 build/
+dist/
+StockUniverseBuilder
 *.o
 *.obj
 *.exe

@@ -1,0 +1,15 @@
+{
+  "name": "stock-universe-builder",
+  "version-string": "1.0.0",
+  "builtin-baseline": "7ece2c79b95131924820fb67c977abb3c4602724",
+  "dependencies": [
+    {
+      "name": "curl",
+      "default-features": false,
+      "features": [
+        "ssl"
+      ]
+    },
+    "nlohmann-json"
+  ]
+}

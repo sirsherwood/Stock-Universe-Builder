@@ -1,25 +1,43 @@
-# Local builder configuration template.
-# Copy this file to ticket.txt and adjust values for your machine if needed.
+# Copy this file to ticket.txt. Lines beginning with # are explanations.
+# Do not put comments after a value on the same line.
 
-# Supported mode for the current builder entry point.
-mode=build_universe
+# mode chooses the job to run.
+# refresh_asset_universe asks Alpaca for the current asset list and writes the
+# file named by universe. Run this once when the asset list is missing or stale.
+# build_universe reads that asset list and downloads historical CSV files.
+mode=refresh_asset_universe
 
-# Local API credential file.
+# api_keys is the credential file. Copy APIKeys.example.txt to APIKeys.txt and
+# put your Alpaca paper key ID on line 2 and secret on line 3.
 api_keys=APIKeys.txt
 
-# Input and output paths relative to the repository root.
+# universe is written by refresh_asset_universe and read by build_universe.
 universe=manifests/asset_universe.csv
+
+# Historical stock CSVs are written inside this folder.
 data_directory=Data
+
+# Every build_universe run records created, skipped, and failed symbols here.
 manifest_output=manifests/build_manifest.csv
 
-# Historical pull window and request settings.
+# timeframe is the size of each historical bar. 1Day means one bar per trading day.
 timeframe=1Day
+
+# start and end are the exact requested historical window in ISO date/time form.
 start=2016-01-01T00:00:00Z
 end=2026-01-01T00:00:00Z
-feed=sip
+
+# feed selects the Alpaca market-data feed. iex works with common paper accounts.
+feed=iex
+
+# limit is the number of bars requested per page. Pagination continues automatically.
 limit=10000
 
-# Build controls.
+# max_symbols limits this run. 10 is a safe first test; 0 means the full asset list.
 max_symbols=10
+
+# reuse_existing=true skips a historical CSV that already exists.
 reuse_existing=true
+
+# refresh_existing=true downloads again even when reuse_existing is true.
 refresh_existing=false

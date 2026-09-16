@@ -95,18 +95,28 @@ bool stdinHasRedirectedInput() {
 #endif
 }
 
-std::map<std::string, std::string> loadTicket() {
-    if (stdinHasRedirectedInput()) {
-        return readTicket(std::cin);
-    }
-
-    std::ifstream input(kDefaultTicketFile);
+std::map<std::string, std::string> readTicketFile(const std::string& filename) {
+    std::ifstream input(filename);
     if (!input.is_open()) {
         throw std::runtime_error(
-            "Could not open ticket configuration file: " + std::string(kDefaultTicketFile)
+            "Could not open " + filename +
+            ". Copy ticket.example.txt to ticket.txt, then run the launcher again."
         );
     }
     return readTicket(input);
+}
+
+std::map<std::string, std::string> loadTicket(int argc, char* argv[]) {
+    if (argc > 2) {
+        throw std::runtime_error("Usage: StockUniverseBuilder [ticket-file]");
+    }
+    if (argc == 2) {
+        return readTicketFile(argv[1]);
+    }
+    if (stdinHasRedirectedInput()) {
+        return readTicket(std::cin);
+    }
+    return readTicketFile(kDefaultTicketFile);
 }
 
 std::string requiredValue(const std::map<std::string, std::string>& values,
@@ -167,7 +177,12 @@ BuildConfig buildConfigFromTicket(const std::map<std::string, std::string>& valu
 
 ApiCredentials readApiCredentials(const std::string& filename) {
     std::ifstream input(filename);
-    if (!input.is_open()) throw std::runtime_error("Could not open API key file: " + filename);
+    if (!input.is_open()) {
+        throw std::runtime_error(
+            "Could not open " + filename +
+            ". Copy APIKeys.example.txt to APIKeys.txt and enter your Alpaca paper credentials."
+        );
+    }
     std::string ignoredBaseUrl;
     ApiCredentials credentials;
     std::getline(input, ignoredBaseUrl);
@@ -176,14 +191,57 @@ ApiCredentials readApiCredentials(const std::string& filename) {
     credentials.key = trim(credentials.key);
     credentials.secret = trim(credentials.secret);
     if (credentials.key.empty() || credentials.secret.empty()) {
-        throw std::runtime_error("API key or secret is missing from " + filename + '.');
+        throw std::runtime_error(
+            "The API key ID or secret is missing from " + filename +
+            ". Put the key ID on line 2 and the secret on line 3."
+        );
+    }
+    if (credentials.key.find("YOUR_ALPACA_") == 0 ||
+        credentials.secret.find("YOUR_ALPACA_") == 0) {
+        throw std::runtime_error(
+            filename + " still contains example placeholders. Replace lines 2 and 3 with your "
+            "Alpaca paper key ID and secret."
+        );
     }
     return credentials;
 }
 
+unsigned daysInMonth(int year, unsigned month) {
+    static constexpr unsigned monthLengths[] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    };
+    if (month == 2) {
+        const bool leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+        return leap ? 29 : 28;
+    }
+    return monthLengths[month - 1];
+}
+
 std::string datePart(const std::string& timestamp, const std::string& fieldName) {
-    if (timestamp.size() < 10 || timestamp[4] != '-' || timestamp[7] != '-') {
-        throw std::runtime_error("Ticket field " + fieldName + " must begin with YYYY-MM-DD.");
+    const bool digitPositions = timestamp.size() >= 10 &&
+        std::isdigit(static_cast<unsigned char>(timestamp[0])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[1])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[2])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[3])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[5])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[6])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[8])) &&
+        std::isdigit(static_cast<unsigned char>(timestamp[9]));
+    if (!digitPositions || timestamp[4] != '-' || timestamp[7] != '-' ||
+        (timestamp.size() > 10 && timestamp[10] != 'T')) {
+        throw std::runtime_error(
+            "Ticket field " + fieldName +
+            " must use YYYY-MM-DD or an ISO timestamp such as YYYY-MM-DDT00:00:00Z."
+        );
+    }
+    const int year = std::stoi(timestamp.substr(0, 4));
+    const unsigned month = static_cast<unsigned>(std::stoul(timestamp.substr(5, 2)));
+    const unsigned day = static_cast<unsigned>(std::stoul(timestamp.substr(8, 2)));
+    if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+        throw std::runtime_error(
+            "Ticket field " + fieldName + " contains an invalid calendar date: " +
+            timestamp.substr(0, 10)
+        );
     }
     return timestamp.substr(0, 10);
 }
@@ -248,16 +306,27 @@ long long daysFromCivil(int year, unsigned month, unsigned day) {
 }
 
 long long timestampDay(const std::string& timestamp) {
-    if (timestamp.size() < 10) throw std::runtime_error("Bar timestamp is missing or invalid.");
     try {
-        const int year = std::stoi(timestamp.substr(0, 4));
-        const unsigned month = static_cast<unsigned>(std::stoul(timestamp.substr(5, 2)));
-        const unsigned day = static_cast<unsigned>(std::stoul(timestamp.substr(8, 2)));
-        if (timestamp[4] != '-' || timestamp[7] != '-' || month < 1 || month > 12 ||
-            day < 1 || day > 31) throw std::runtime_error("invalid");
+        const std::string date = datePart(timestamp, "bar timestamp");
+        const int year = std::stoi(date.substr(0, 4));
+        const unsigned month = static_cast<unsigned>(std::stoul(date.substr(5, 2)));
+        const unsigned day = static_cast<unsigned>(std::stoul(date.substr(8, 2)));
         return daysFromCivil(year, month, day);
     } catch (const std::exception&) {
         throw std::runtime_error("Bar timestamp is missing or invalid.");
+    }
+}
+
+void validateDateRange(const BuildConfig& config) {
+    datePart(config.start, "start");
+    datePart(config.end, "end");
+    const long long startDay = timestampDay(config.start);
+    const long long endDay = timestampDay(config.end);
+    if (startDay > endDay || (startDay == endDay && config.start >= config.end)) {
+        throw std::runtime_error(
+            "Ticket field start must be earlier than end. The requested values were start=" +
+            config.start + " and end=" + config.end + '.'
+        );
     }
 }
 
@@ -367,7 +436,7 @@ void printSummary(std::size_t requested, const Summary& summary) {
 }
 } // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
     const CURLcode curlInitResult = curl_global_init(CURL_GLOBAL_DEFAULT);
     if (curlInitResult != CURLE_OK) {
         std::cerr << "Error: Failed to initialize libcurl: "
@@ -376,11 +445,49 @@ int main() {
     }
     int exitCode = 0;
     try {
-        const BuildConfig config = buildConfigFromTicket(loadTicket());
+        const std::map<std::string, std::string> ticket = loadTicket(argc, argv);
+        const std::string mode = requiredValue(ticket, "mode");
+
+        if (mode == "refresh_asset_universe") {
+            const std::string apiKeys = requiredValue(ticket, "api_keys");
+            const std::string universeOutput = requiredValue(ticket, "universe");
+            const ApiCredentials credentials = readApiCredentials(apiKeys);
+            const AlpacaClient client(credentials.key, credentials.secret);
+            std::cout << "[Assets] Requesting the active US-equity universe from Alpaca...\n";
+            const std::string response = client.getAssetsRaw();
+            std::size_t received = 0;
+            const std::vector<AssetInfo> assets = parseAssetUniverse(response, received);
+            writeAssetUniverseCsv(universeOutput, assets);
+            std::cout << "[Assets] Received " << received << " records.\n"
+                      << "[Assets] Wrote " << assets.size() << " active, tradable US equities to "
+                      << universeOutput << ".\n"
+                      << "[Next] Set mode=build_universe in ticket.txt to download historical "
+                         "CSVs.\n";
+            curl_global_cleanup();
+            return 0;
+        }
+        if (mode != "build_universe") {
+            throw std::runtime_error(
+                "Unsupported ticket mode: " + mode +
+                ". Use refresh_asset_universe or build_universe."
+            );
+        }
+
+        const BuildConfig config = buildConfigFromTicket(ticket);
+        validateDateRange(config);
         const ApiCredentials credentials = readApiCredentials(config.apiKeys);
         const std::vector<std::string> universe = readUniverseSymbols(config.universe);
         const std::size_t requested = config.maxSymbols == 0
             ? universe.size() : std::min(config.maxSymbols, universe.size());
+
+        std::error_code dataDirectoryError;
+        std::filesystem::create_directories(config.dataDirectory, dataDirectoryError);
+        if (dataDirectoryError) {
+            throw std::runtime_error(
+                "Could not create the historical-data directory: " + config.dataDirectory +
+                ". Check that the release folder is writable."
+            );
+        }
 
         const std::filesystem::path manifestPath(config.manifestOutput);
         if (manifestPath.has_parent_path()) {

@@ -1,0 +1,52 @@
+name: Build native release ZIPs
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build, test, and package Windows x64
+        shell: pwsh
+        env:
+          VCPKG_ROOT: C:\vcpkg
+        run: .\scripts\build-release-windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stock-Universe-Builder-windows-x64
+          path: dist/Stock-Universe-Builder-windows-x64.zip
+
+  linux-x64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install developer dependencies
+        run: sudo apt-get update && sudo apt-get install -y g++ libcurl4-openssl-dev nlohmann-json3-dev zip
+      - name: Build, test, and package Linux x64
+        run: ./scripts/build-release-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Stock-Universe-Builder-linux-x64
+          path: dist/Stock-Universe-Builder-linux-x64.zip
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows-x64, linux-x64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: Stock-Universe-Builder-*
+          merge-multiple: true
+          path: release-files
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*.zip

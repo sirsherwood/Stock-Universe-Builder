@@ -12,6 +12,7 @@ class AlpacaClient {
 
         AlpacaClient(const std::string& key, const std::string& secret);
         std::string authenticatedGet(const std::string& url) const;
+        std::string getAssetsRaw() const;
 
         // Fetch
         std::string getBarsRaw(

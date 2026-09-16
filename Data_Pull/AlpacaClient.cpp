@@ -1,6 +1,7 @@
 #include "AlpacaClient.h"
 
 #include <curl/curl.h> 
+#include <algorithm>
 #include <cctype>
 #include <iomanip>
 #include <sstream>
@@ -31,10 +32,27 @@ namespace {
         }
         return encoded.str();
     }
+
+    std::string responseDetail(std::string response) {
+        std::replace(response.begin(), response.end(), '\r', ' ');
+        std::replace(response.begin(), response.end(), '\n', ' ');
+        constexpr std::size_t maximumLength = 300;
+        if (response.size() > maximumLength) {
+            response.resize(maximumLength);
+            response += "...";
+        }
+        return response;
+    }
 }
 
 AlpacaClient::AlpacaClient(const std::string& key, const std::string& secret)
     : apiKey(key), apiSecret(secret), baseUrl("https://data.alpaca.markets/v2") {
+}
+
+std::string AlpacaClient::getAssetsRaw() const {
+    return authenticatedGet(
+        "https://paper-api.alpaca.markets/v2/assets?status=active&asset_class=us_equity"
+    );
 }
 
 std::string AlpacaClient::buildBarsUrl(
@@ -84,6 +102,7 @@ std::string AlpacaClient::authenticatedGet(const std::string& url) const {
     }
 
     std::string response;
+    char curlError[CURL_ERROR_SIZE] = {};
 
     std::string keyHeader = "APCA-API-KEY-ID: " + apiKey;
     std::string secretHeader = "APCA-API-SECRET-KEY: " + apiSecret;
@@ -98,15 +117,23 @@ std::string AlpacaClient::authenticatedGet(const std::string& url) const {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Stock-Universe-Builder/1.0");
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlError);
 
     CURLcode result = curl_easy_perform(curl);
 
     if (result != CURLE_OK) {
-        std::string errorMessage = curl_easy_strerror(result);
+        const std::string errorMessage = curlError[0] == '\0'
+            ? curl_easy_strerror(result) : curlError;
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
-        throw std::runtime_error("Request failed: " + errorMessage);
+        throw std::runtime_error(
+            "Network request failed. Check your internet connection and try again. Details: " +
+            errorMessage
+        );
     }
 
     long httpCode = 0;
@@ -115,12 +142,24 @@ std::string AlpacaClient::authenticatedGet(const std::string& url) const {
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    if (httpCode < 200 || httpCode >= 300) {
+    if (httpCode == 401 || httpCode == 403) {
         throw std::runtime_error(
-            "HTTP request failed with status code " +
-            std::to_string(httpCode) +
-            "\nResponse body:\n" +
-            response
+            "Alpaca authentication failed (HTTP " + std::to_string(httpCode) +
+            "). Check the key ID and secret in APIKeys.txt and confirm the account can use the "
+            "selected data feed."
+        );
+    }
+    if (httpCode == 429) {
+        throw std::runtime_error(
+            "Alpaca rate limit reached (HTTP 429). Wait briefly, then run the same ticket again."
+        );
+    }
+    if (httpCode < 200 || httpCode >= 300) {
+        const std::string detail = responseDetail(response);
+        throw std::runtime_error(
+            "Alpaca rejected the request (HTTP " + std::to_string(httpCode) + ")." +
+            (detail.empty() ? "" : " Details: " + detail) +
+            " Check the ticket's timeframe, feed, start, and end values."
         );
     }
 

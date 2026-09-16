@@ -83,7 +83,14 @@ std::string extractNextPageToken(const std::string& rawJson){
 void writeBarsToCsv(const std::string& filename, const std::vector<Bar>& bars){
     const std::filesystem::path path(filename);
     if (path.has_parent_path()) {
-        std::filesystem::create_directories(path.parent_path());
+        std::error_code directoryError;
+        std::filesystem::create_directories(path.parent_path(), directoryError);
+        if (directoryError) {
+            throw std::runtime_error(
+                "Could not create the historical-data directory: " +
+                path.parent_path().string() + ". Check that the folder is writable."
+            );
+        }
     }
 
     std::ofstream file(filename);
