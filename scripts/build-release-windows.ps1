@@ -28,12 +28,31 @@ if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed with exit status $L
 cmake --build $buildDir --config Release
 if ($LASTEXITCODE -ne 0) { throw "Windows build failed with exit status $LASTEXITCODE." }
 
-$executable = Join-Path $buildDir "Release\StockUniverseBuilder.exe"
-if (-not (Test-Path $executable)) {
-    $executable = Join-Path $buildDir "StockUniverseBuilder.exe"
+function Find-BuiltExecutable([string]$Name) {
+    $candidate = Join-Path $buildDir "Release\$Name"
+    if (Test-Path $candidate) { return $candidate }
+    $candidate = Join-Path $buildDir $Name
+    if (Test-Path $candidate) { return $candidate }
+    throw "The build completed without producing $Name."
 }
-if (-not (Test-Path $executable)) {
-    throw "The build completed without producing StockUniverseBuilder.exe."
+
+function Get-PeSubsystem([string]$Path) {
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) {
+        throw "$Path is not a valid PE executable."
+    }
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+    $optionalHeader = $peOffset + 24
+    return [BitConverter]::ToUInt16($bytes, $optionalHeader + 68)
+}
+
+$guiExecutable = Find-BuiltExecutable "StockUniverseBuilder.exe"
+$coreExecutable = Find-BuiltExecutable "UniverseBuilderCore.exe"
+if ((Get-PeSubsystem $guiExecutable) -ne 2) {
+    throw "StockUniverseBuilder.exe was not linked as a Windows GUI application."
+}
+if ((Get-PeSubsystem $coreExecutable) -ne 3) {
+    throw "UniverseBuilderCore.exe was not linked as a console application."
 }
 
 New-Item -ItemType Directory -Force -Path $distributionDir | Out-Null
@@ -45,8 +64,8 @@ New-Item -ItemType Directory -Force -Path `
     (Join-Path $releaseDir "manifests"), `
     (Join-Path $releaseDir "licenses") | Out-Null
 
-Copy-Item $executable (Join-Path $releaseDir "StockUniverseBuilder.exe")
-Copy-Item (Join-Path $repositoryDir "run.bat") $releaseDir
+Copy-Item $guiExecutable (Join-Path $releaseDir "StockUniverseBuilder.exe")
+Copy-Item $coreExecutable (Join-Path $releaseDir "UniverseBuilderCore.exe")
 Copy-Item (Join-Path $repositoryDir "ticket.example.txt") $releaseDir
 Copy-Item (Join-Path $repositoryDir "APIKeys.example.txt") $releaseDir
 Copy-Item (Join-Path $repositoryDir "START_HERE.md") (Join-Path $releaseDir "README.txt")
@@ -66,23 +85,40 @@ if (Test-Path $installedShare) {
 $testDir = Join-Path $env:TEMP ("Stock Builder Packaging Test " + [guid]::NewGuid())
 try {
     Copy-Item -Recurse $releaseDir $testDir
-    $env:STOCK_BUILDER_NO_PAUSE = "1"
-    $launcherOutput = & cmd.exe /d /c (Join-Path $testDir "run.bat") 2>&1
-    $launcherStatus = $LASTEXITCODE
-    if ($launcherStatus -eq 0 -or ($launcherOutput -join "`n") -notmatch "Copy ticket.example.txt") {
-        throw "The Windows missing-ticket launcher check failed."
+    $packagedGui = Join-Path $testDir "StockUniverseBuilder.exe"
+    $packagedCore = Join-Path $testDir "UniverseBuilderCore.exe"
+    if (-not (Test-Path $packagedGui) -or -not (Test-Path $packagedCore)) {
+        throw "The packaged release does not contain both Windows executables."
+    }
+    if (Test-Path (Join-Path $testDir "APIKeys.txt")) {
+        throw "APIKeys.txt must never be included in the Windows release."
+    }
+    if (Test-Path (Join-Path $testDir "ticket.txt")) {
+        throw "Generated ticket.txt must never be included in the Windows release."
+    }
+
+    $missingTicket = Join-Path $testDir "missing-ticket.txt"
+    $ticketOutput = & $packagedCore $missingTicket 2>&1
+    $ticketStatus = $LASTEXITCODE
+    if ($ticketStatus -eq 0 -or ($ticketOutput -join "`n") -notmatch "Copy ticket.example.txt") {
+        throw "The Windows core missing-ticket check failed."
     }
 
     Copy-Item (Join-Path $testDir "ticket.example.txt") (Join-Path $testDir "ticket.txt")
     Copy-Item (Join-Path $testDir "APIKeys.example.txt") (Join-Path $testDir "APIKeys.txt")
-    $credentialOutput = & cmd.exe /d /c (Join-Path $testDir "run.bat") 2>&1
-    $credentialStatus = $LASTEXITCODE
+    Push-Location $testDir
+    try {
+        $credentialOutput = & $packagedCore (Join-Path $testDir "ticket.txt") 2>&1
+        $credentialStatus = $LASTEXITCODE
+    }
+    finally {
+        Pop-Location
+    }
     if ($credentialStatus -eq 0 -or ($credentialOutput -join "`n") -notmatch "example placeholders") {
         throw "The Windows missing-credential check failed."
     }
 }
 finally {
-    Remove-Item Env:STOCK_BUILDER_NO_PAUSE -ErrorAction SilentlyContinue
     if (Test-Path $testDir) { Remove-Item -Recurse -Force $testDir }
 }
 

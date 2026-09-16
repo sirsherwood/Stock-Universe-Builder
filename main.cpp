@@ -437,6 +437,9 @@ void printSummary(std::size_t requested, const Summary& summary) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    // The Windows GUI captures this stream through a pipe. Flush each insertion so
+    // teammates can see the existing progress lines while a long pull is running.
+    std::cout << std::unitbuf;
     const CURLcode curlInitResult = curl_global_init(CURL_GLOBAL_DEFAULT);
     if (curlInitResult != CURLE_OK) {
         std::cerr << "Error: Failed to initialize libcurl: "

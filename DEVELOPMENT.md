@@ -38,10 +38,17 @@ Set `VCPKG_ROOT` to the vcpkg folder, then run:
 .\scripts\build-release-windows.ps1
 ```
 
-The script uses the `x64-windows-static` triplet. libcurl, zlib, the C++ runtime, and
-the program are linked into `StockUniverseBuilder.exe`; TLS uses Windows Schannel.
-The release has no compiler or DLL prerequisite. vcpkg copyright files are copied into
-the release before the ZIP is created.
+The script uses the `x64-windows-static` triplet. It builds the Win32 GUI target
+`StockUniverseBuilderGUI` as `StockUniverseBuilder.exe` and the existing CLI target
+`UniverseBuilderCore` as `UniverseBuilderCore.exe`. libcurl, zlib, and the C++ runtime
+are statically linked into the core; TLS uses Windows Schannel. The release has no
+compiler or DLL prerequisite. vcpkg copyright files are copied into the release before
+the ZIP is created.
+
+The GUI writes `ticket.txt` and invokes `UniverseBuilderCore.exe ticket.txt` with
+redirected stdout/stderr. The core remains independently usable for ticket-driven
+debugging. `run.bat` in the source tree is a convenience launcher for that core and is
+not part of the beginner Windows release.
 
 The GitHub Actions workflow performs the same Windows and Linux builds. A manually
 started run uploads both ZIPs as workflow artifacts. A tag beginning with `v` also
@@ -62,8 +69,8 @@ developer workflows.
 
 ## Release contents and checks
 
-The assembly scripts copy only the executable, launchers, safe examples, beginner
-guide, third-party notices, and empty `Data/` and `manifests/` folders. Local
+The assembly scripts copy only the release executables, safe examples, platform
+beginner guide, third-party notices, and empty `Data/` and `manifests/` folders. Local
 credentials, tickets, CSV datasets, and generated manifests are never copied.
 
 `tests/packaging-smoke.sh RELEASE_DIRECTORY` checks a path containing spaces, launcher

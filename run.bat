@@ -9,14 +9,14 @@ if not exist "ticket.txt" (
   goto finished
 )
 
-if not exist "StockUniverseBuilder.exe" (
-  echo Could not run StockUniverseBuilder.exe.
-  echo Keep run.bat and StockUniverseBuilder.exe together in the extracted folder.
+if not exist "UniverseBuilderCore.exe" (
+  echo Could not run UniverseBuilderCore.exe.
+  echo Keep run.bat and UniverseBuilderCore.exe together in the same folder.
   set "exit_code=1"
   goto finished
 )
 
-"%~dp0StockUniverseBuilder.exe" "%~dp0ticket.txt"
+"%~dp0UniverseBuilderCore.exe" "%~dp0ticket.txt"
 set "exit_code=%ERRORLEVEL%"
 
 :finished
