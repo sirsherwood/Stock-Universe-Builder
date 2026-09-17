@@ -17,6 +17,10 @@ target_link_libraries(UniverseBuilderCore PRIVATE CURL::libcurl nlohmann_json::n
 
 if(WIN32)
     set_target_properties(UniverseBuilderCore PROPERTIES OUTPUT_NAME "UniverseBuilderCore")
+    target_compile_definitions(UniverseBuilderCore PRIVATE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+    )
 
     add_executable(StockUniverseBuilderGUI WIN32
         GUI/StockUniverseBuilderGui.cpp

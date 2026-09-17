@@ -481,7 +481,7 @@ int main(int argc, char* argv[]) {
         const ApiCredentials credentials = readApiCredentials(config.apiKeys);
         const std::vector<std::string> universe = readUniverseSymbols(config.universe);
         const std::size_t requested = config.maxSymbols == 0
-            ? universe.size() : std::min(config.maxSymbols, universe.size());
+            ? universe.size() : (std::min)(config.maxSymbols, universe.size());
 
         std::error_code dataDirectoryError;
         std::filesystem::create_directories(config.dataDirectory, dataDirectoryError);

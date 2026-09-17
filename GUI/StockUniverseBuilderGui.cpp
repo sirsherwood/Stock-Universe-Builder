@@ -213,9 +213,18 @@ void updateCredentialStatus() {
 }
 
 void setJobControlsEnabled(bool enabled) {
+    EnableWindow(g_timeframe, enabled);
+    EnableWindow(g_startDate, enabled);
+    EnableWindow(g_endDate, enabled);
+    EnableWindow(g_feed, enabled);
+    EnableWindow(g_stockCountMode, enabled);
+    EnableWindow(g_customCount, enabled);
+    EnableWindow(g_reuseExisting, enabled);
+    EnableWindow(g_refreshExisting, enabled);
     EnableWindow(g_pullButton, enabled);
     EnableWindow(g_refreshButton, enabled);
     EnableWindow(g_credentialButton, enabled);
+    EnableWindow(g_openDataButton, enabled);
 }
 
 void updateCustomCountVisibility() {
