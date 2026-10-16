@@ -98,6 +98,8 @@ try {
     }
 
     $missingTicket = Join-Path $testDir "missing-ticket.txt"
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     $ticketOutput = & $packagedCore $missingTicket 2>&1
     $ticketStatus = $LASTEXITCODE
     if ($ticketStatus -eq 0 -or ($ticketOutput -join "`n") -notmatch "Copy ticket.example.txt") {

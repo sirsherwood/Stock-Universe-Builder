@@ -11,6 +11,12 @@ add_executable(UniverseBuilderCore
     Data_Pull/AlpacaClient.cpp
     Data_Processing/DataProcessor.cpp
 )
+ if(WIN32)
+    target_compile_definitions(UniverseBuilderCore PRIVATE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+    endif()
 
 target_compile_features(UniverseBuilderCore PRIVATE cxx_std_17)
 target_link_libraries(UniverseBuilderCore PRIVATE CURL::libcurl nlohmann_json::nlohmann_json)
