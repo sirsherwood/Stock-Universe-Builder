@@ -11,6 +11,7 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -52,11 +53,19 @@ enum ControlId {
     IdOpenDataButton,
     IdLog,
     IdProgress,
+    IdStopButton,
     IdCredentialKey = 200,
     IdCredentialSecret
 };
 
 enum class JobKind { RefreshStockList, PullData };
+
+struct ActiveJob {
+    // Serialize launch, termination, and handle cleanup so Stop cannot use a stale handle.
+    std::mutex mutex;
+    HANDLE process = nullptr;
+    bool stopRequested = false;
+};
 
 struct ProgressUpdate {
     int current = 0;
@@ -93,6 +102,7 @@ HWND g_reuseExisting = nullptr;
 HWND g_refreshExisting = nullptr;
 HWND g_refreshButton = nullptr;
 HWND g_pullButton = nullptr;
+HWND g_stopButton = nullptr;
 HWND g_openDataButton = nullptr;
 HWND g_jobStatus = nullptr;
 HWND g_activity = nullptr;
@@ -102,6 +112,7 @@ HFONT g_font = nullptr;
 HFONT g_titleFont = nullptr;
 std::filesystem::path g_applicationDirectory;
 bool g_jobRunning = false;
+std::shared_ptr<ActiveJob> g_activeJob;
 
 std::filesystem::path applicationPath(const wchar_t* relativePath) {
     return g_applicationDirectory / relativePath;
@@ -216,6 +227,35 @@ void setJobControlsEnabled(bool enabled) {
     EnableWindow(g_pullButton, enabled);
     EnableWindow(g_refreshButton, enabled);
     EnableWindow(g_credentialButton, enabled);
+    EnableWindow(g_stopButton, !enabled);
+}
+
+void stopJob() {
+    if (!g_jobRunning || !g_activeJob) return;
+    DWORD stopError = ERROR_SUCCESS;
+    {
+        std::lock_guard<std::mutex> lock(g_activeJob->mutex);
+        if (g_activeJob->stopRequested) return;
+        if (g_activeJob->process != nullptr &&
+            WaitForSingleObject(g_activeJob->process, 0) != WAIT_OBJECT_0 &&
+            !TerminateProcess(g_activeJob->process, ERROR_CANCELLED)) {
+            stopError = GetLastError();
+            // The core may have exited between the wait and termination calls.
+            if (WaitForSingleObject(g_activeJob->process, 0) == WAIT_OBJECT_0) {
+                stopError = ERROR_SUCCESS;
+            }
+        }
+        if (stopError == ERROR_SUCCESS) g_activeJob->stopRequested = true;
+    }
+    if (stopError != ERROR_SUCCESS) {
+        appendLog(L"[GUI] Could not stop the core: " + windowsErrorMessage(stopError) +
+                  L". You can try Stop again.\r\n");
+        return;
+    }
+    EnableWindow(g_stopButton, FALSE);
+    SetWindowTextW(g_jobStatus, L"Job status: Stopping");
+    SetWindowTextW(g_activity, L"Current activity: Waiting for the core to stop");
+    appendLog(L"[GUI] Stop requested. Waiting for the core to exit...\r\n");
 }
 
 void updateCustomCountVisibility() {
@@ -369,7 +409,7 @@ void postProgress(HWND window, const std::string& line) {
 
 void runCoreProcess(HWND window, const std::filesystem::path& corePath,
                     const std::filesystem::path& ticketPath, JobKind kind,
-                    bool continueWithPull) {
+                    bool continueWithPull, std::shared_ptr<ActiveJob> activeJob) {
     auto result = std::make_unique<JobResult>();
     result->kind = kind;
     result->continueWithPull = continueWithPull;
@@ -413,10 +453,19 @@ void runCoreProcess(HWND window, const std::filesystem::path& corePath,
     std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
     mutableCommand.push_back(L'\0');
     PROCESS_INFORMATION process{};
-    const BOOL created = CreateProcessW(
-        corePath.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
-        g_applicationDirectory.c_str(), &startup, &process);
-    const DWORD createError = created ? ERROR_SUCCESS : GetLastError();
+    BOOL created = FALSE;
+    DWORD createError = ERROR_CANCELLED;
+    {
+        std::lock_guard<std::mutex> lock(activeJob->mutex);
+        // An immediate Stop must prevent a process from launching afterward.
+        if (!activeJob->stopRequested) {
+            created = CreateProcessW(
+                corePath.c_str(), mutableCommand.data(), nullptr, nullptr, TRUE,
+                CREATE_NO_WINDOW, nullptr, g_applicationDirectory.c_str(), &startup, &process);
+            createError = created ? ERROR_SUCCESS : GetLastError();
+            if (created) activeJob->process = process.hProcess;
+        }
+    }
     CloseHandle(writePipe);
     if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
 
@@ -456,7 +505,11 @@ void runCoreProcess(HWND window, const std::filesystem::path& corePath,
         result->launchError = L"The core stopped, but its exit status could not be read: " +
                               windowsErrorMessage(GetLastError());
     }
-    CloseHandle(process.hProcess);
+    {
+        std::lock_guard<std::mutex> lock(activeJob->mutex);
+        activeJob->process = nullptr;
+        CloseHandle(process.hProcess);
+    }
     PostMessageW(window, kMessageJobFinished, 0, reinterpret_cast<LPARAM>(result.release()));
 }
 
@@ -484,10 +537,12 @@ void launchJob(JobKind kind, const std::filesystem::path& ticketPath,
     g_jobRunning = true;
     setJobControlsEnabled(false);
     try {
+        g_activeJob = std::make_shared<ActiveJob>();
         std::thread(runCoreProcess, g_mainWindow, corePath, ticketPath, kind,
-                    continueWithPull).detach();
+                    continueWithPull, g_activeJob).detach();
     } catch (const std::exception&) {
         g_jobRunning = false;
+        g_activeJob.reset();
         setJobControlsEnabled(true);
         SendMessageW(g_progress, PBM_SETMARQUEE, FALSE, 0);
         SetWindowTextW(g_jobStatus, L"Job status: Failed");
@@ -750,6 +805,9 @@ void createMainControls(HWND window) {
     g_openDataButton = createControl(0, L"BUTTON", L"Open Data Folder",
                                      WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON, 428, 446, 190, 34,
                                      window, IdOpenDataButton);
+    g_stopButton = createControl(0, L"BUTTON", L"Stop",
+                                 WS_VISIBLE | WS_TABSTOP | WS_DISABLED | BS_PUSHBUTTON,
+                                 630, 446, 190, 34, window, IdStopButton);
 
     g_jobStatus = createControl(0, L"STATIC", L"Job status: Ready", WS_VISIBLE, 24, 496, 300,
                                 22, window, 0);
@@ -788,6 +846,9 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
                     case IdPullButton:
                         beginPull();
                         return 0;
+                    case IdStopButton:
+                        stopJob();
+                        return 0;
                     case IdOpenDataButton:
                         openDataFolder();
                         return 0;
@@ -798,7 +859,8 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             break;
         case WM_CLOSE:
             if (g_jobRunning) {
-                MessageBoxW(window, L"A job is still running. Wait for it to finish before closing.",
+                MessageBoxW(window, L"A job is still running. Click Stop or wait for it to finish "
+                                    L"before closing.",
                             L"Stock Universe Builder", MB_OK | MB_ICONINFORMATION);
                 return 0;
             }
@@ -817,18 +879,29 @@ LRESULT CALLBACK mainWindowProc(HWND window, UINT message, WPARAM wParam, LPARAM
             SendMessageW(g_progress, PBM_SETMARQUEE, FALSE, 0);
             SendMessageW(g_progress, PBM_SETRANGE32, 0, update->total);
             SendMessageW(g_progress, PBM_SETPOS, update->current, 0);
-            const std::wstring activity = L"Current activity: " + update->activity;
-            SetWindowTextW(g_activity, activity.c_str());
+            if (!g_activeJob || !g_activeJob->stopRequested) {
+                const std::wstring activity = L"Current activity: " + update->activity;
+                SetWindowTextW(g_activity, activity.c_str());
+            }
             return 0;
         }
         case kMessageJobFinished: {
             std::unique_ptr<JobResult> result(reinterpret_cast<JobResult*>(lParam));
             SendMessageW(g_progress, PBM_SETMARQUEE, FALSE, 0);
+            const bool stopped = g_activeJob && g_activeJob->stopRequested;
+            g_activeJob.reset();
             g_jobRunning = false;
             setJobControlsEnabled(true);
             if (result->kind == JobKind::RefreshStockList) {
                 std::error_code ignored;
                 std::filesystem::remove(applicationPath(kRefreshTicketFile), ignored);
+            }
+            if (stopped) {
+                SetWindowTextW(g_jobStatus, L"Job status: Stopped");
+                SetWindowTextW(g_activity, L"Current activity: Stopped by user");
+                appendLog(L"[GUI] Job stopped. Existing output has been kept; files being "
+                          L"written may be incomplete.\r\n");
+                return 0;
             }
             if (!result->launchError.empty() || result->exitCode != 0) {
                 SetWindowTextW(g_jobStatus, L"Job status: Failed");

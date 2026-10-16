@@ -50,6 +50,12 @@ redirected stdout/stderr. The core remains independently usable for ticket-drive
 debugging. `run.bat` in the source tree is a convenience launcher for that core and is
 not part of the beginner Windows release.
 
+Run `tests/windows-gui-stop.ps1` on Windows with the Visual Studio C++ build tools
+installed to build the GUI and exercise Stop using a local fixture process. The checks
+cover active and immediate cancellation, repeated Stop clicks, refresh-to-pull
+cancellation, output preservation, and starting a new job after stopping. No Alpaca
+credentials or network access are required.
+
 The GitHub Actions workflow performs the same Windows and Linux builds. A manually
 started run uploads both ZIPs as workflow artifacts. A tag beginning with `v` also
 attaches them to a GitHub Release.

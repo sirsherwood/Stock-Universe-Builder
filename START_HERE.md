@@ -25,6 +25,10 @@ Use **Refresh Stock List** whenever you want to retrieve Alpaca's current list o
 active, tradable US equities. The application handles the supporting configuration
 files automatically.
 
+Click **Stop** to end an active refresh or data pull. Wait for **Job status: Stopped**
+before starting another job or closing the window. The displayed output and files
+already written are kept; a file being written when stopped may be incomplete.
+
 ## Settings
 
 - **Small test (10)** processes the first 10 stocks and is the recommended first run.
