@@ -1,21 +1,18 @@
+# Credentials / local config
 APIKeys.txt
 ticket.txt
 
+# Build outputs
+build/
+dist/
+app
+*.o
+*.obj
+*.exe
+
+# Generated datasets
 Data/*
 !Data/.gitkeep
 
 manifests/*.csv
 !manifests/.gitkeep
-
-app
-build/
-dist/
-StockUniverseBuilder
-*.o
-*.obj
-*.exe
-*.out
-*.pdb
-*.dSYM/
-
-.DS_Store
